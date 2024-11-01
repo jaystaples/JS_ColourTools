@@ -1,0 +1,67 @@
+/* 
+
+Contrast function written by Jay Staples - allows user to adjust RGB channels independently.
+jaystaplesfilm.com
+jaystaplesfilm@gmail.com
+
+Contrast - Controls the intensity of the effect
+Pivot - Allows the user to set the midpoint for the contrast in stops above or below mid grey.
+Highlight Behavior - Allows the user to choose between a power function or gain control above the pivot point. Values below pivot are always power function.
+
+*/
+
+
+
+DEFINE_UI_PARAMS(r_contrast, Red Contrast, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.001)
+DEFINE_UI_PARAMS(r_pivot, Red Pivot, DCTLUI_SLIDER_FLOAT, 0.0, -5.0, 10.0, 0.001)
+DEFINE_UI_PARAMS(g_contrast, Green Contrast, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.001)
+DEFINE_UI_PARAMS(g_pivot, Green Pivot, DCTLUI_SLIDER_FLOAT, 0.0, -5.0, 10.0, 0.001)
+DEFINE_UI_PARAMS(b_contrast, Blue Contrast, DCTLUI_SLIDER_FLOAT, 1.0, 0.0, 2.0, 0.001)
+DEFINE_UI_PARAMS(b_pivot, Blue Pivot, DCTLUI_SLIDER_FLOAT, 0.0, -5.0, 10.0, 0.001)
+DEFINE_UI_PARAMS(highlight_bhvr, Highlight Behavior, DCTLUI_COMBO_BOX, 1, {h_expo, h_lin}, {Power, Gain})
+
+__DEVICE__ float clip_black(float x)
+{
+    return _fmaxf(x, 0.0f);
+}
+
+__DEVICE__ float expo_contrast(float x, float contrast, float midpoint)
+{
+    return midpoint * _powf(x / midpoint, contrast);
+}
+
+__DEVICE__ float lin_contrast(float x, float contrast, float midpoint)
+{
+    return (contrast * (x - midpoint)) + midpoint;
+}
+
+__DEVICE__ float apply_contrast(float x, float contrast, float midpoint, int highlight_bhvr)
+{  
+    if (x >= midpoint) {
+        return (highlight_bhvr == h_expo) ? expo_contrast(x, contrast, midpoint) 
+                                 : lin_contrast(x, contrast, midpoint);
+    } 
+    else {
+        return expo_contrast(x, contrast, midpoint);
+    }
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+    float r_midpoint = 0.18f * _powf(2.0f, r_pivot);
+    float g_midpoint = 0.18f * _powf(2.0f, g_pivot);
+    float b_midpoint = 0.18f * _powf(2.0f, b_pivot);
+
+    float3 rgb = make_float3(p_R, p_G, p_B);
+
+    rgb.x = apply_contrast(rgb.x, r_contrast, r_midpoint, highlight_bhvr);
+    rgb.y = apply_contrast(rgb.y, g_contrast, g_midpoint, highlight_bhvr);
+    rgb.z = apply_contrast(rgb.z, b_contrast, b_midpoint, highlight_bhvr);
+    
+
+    rgb.x = clip_black(rgb.x);
+    rgb.y = clip_black(rgb.y);
+    rgb.z = clip_black(rgb.z);
+
+    return rgb;
+}

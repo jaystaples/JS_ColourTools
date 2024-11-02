@@ -1,0 +1,55 @@
+/* 
+
+Asymptotic soft clip by Jay Staples. Intended for use on linearized images.
+jaystaplesfilm.com
+jaystaplesfilm@gmail.com
+
+a = At 'a' stops above mid grey, start roll off.
+b = At 'b" stops above 'a', define asymptote.
+
+https://www.desmos.com/calculator/xaj1tjzdzn
+
+
+*/
+
+DEFINE_UI_PARAMS(a, Soft Clip Start, DCTLUI_SLIDER_FLOAT, 2, 0, 6, 0.01)
+DEFINE_UI_PARAMS(b, Soft Clip Range, DCTLUI_SLIDER_FLOAT, 2, 0.1, 8, 0.01)
+
+__DEVICE__ float soft_clip(float x, float g, float a, float b) 
+{
+
+  // Calculate pivot point where rolloff starts
+    float pivot = g * _powf(2.0f, a);
+    
+  // Calculate range between pivot and final value
+    float range = g * _powf(2.0f, a + b) - pivot;
+
+  if (x <= pivot) {
+
+        return x;
+
+    } else {
+
+
+      // Roll off between pivot and peak
+      return x = range * (1.0f - _expf(-(x - pivot) / range)) + pivot;
+
+    }
+
+}
+
+//Colour Transform
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+
+  const float g = 0.18f;
+
+  float3 rgb = make_float3(p_R, p_G, p_B);
+    
+  rgb.x = soft_clip(rgb.x, g, a, b);
+  rgb.y = soft_clip(rgb.y, g, a, b);
+  rgb.z = soft_clip(rgb.z, g, a, b);
+
+  return rgb;
+
+}

@@ -48,9 +48,9 @@ __DEVICE__ float apply_contrast(float x, float contrast, float midpoint, int hig
 
 __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
 {
-    float r_midpoint = 0.18f * _powf(2.0f, r_pivot);
-    float g_midpoint = 0.18f * _powf(2.0f, g_pivot);
-    float b_midpoint = 0.18f * _powf(2.0f, b_pivot);
+    float r_midpoint = r_pivot;
+    float g_midpoint = g_pivot;
+    float b_midpoint = b_pivot;
 
     float3 rgb = make_float3(p_R, p_G, p_B);
 

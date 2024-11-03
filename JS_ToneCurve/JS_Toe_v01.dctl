@@ -1,0 +1,104 @@
+/* 
+
+Power Toe / Shadow Compensation.
+Intended for use on linearized images.
+Acts like a customizable 'forward ootf' checkbox in Davinci's CST node. Place this DCTL in linear space right before a CST targeting a display with forward OOTF intentially turned off. Tweak toe to taste.
+
+a = The point where values are returned to normal. Calculated in stops above mid grey.
+b = Toe Strength
+exp_comp = If on, applies a gain to return values back to the original input value at 'a' stops above mid grey. 
+
+Written by
+jaystaplesfilm.com
+jaystaplesfilm@gmail.com
+
+Desmos version
+https://www.desmos.com/calculator/txugidrqpb
+
+
+*/
+
+DEFINE_UI_PARAMS(b, Toe Strength, DCTLUI_SLIDER_FLOAT, 0.05, 0.0, 0.25, 0.001)
+DEFINE_UI_PARAMS(a, Compensation Range, DCTLUI_SLIDER_FLOAT, 2, 2, 4.5, 0.001)
+DEFINE_UI_PARAMS(exp_comp, Exposure Compensation, DCTLUI_CHECK_BOX, 1)
+
+
+__DEVICE__ float daniele_toe(float x, float b) 
+{
+  /*
+  The core function is based on Daniele Siragusano's shadow toe function found here
+  https://www.desmos.com/calculator/rboxfu8hjb
+  https://community.acescentral.com/t/output-transform-tone-scale/3498/14
+  */
+    return _fmaxf(0.0f, _powf(x, 2.0f) / (x + b));
+
+}
+
+__DEVICE__ float daniele_toe_comp(float x, float b, float c) {
+
+  //Modifiable variable 0-1 to adjust rolloff strength. 
+    const float w = 0.1f;
+
+  //Calculate Daniele Toe pre scale & rolloff
+    float rgb1 = daniele_toe(x, b);
+
+  //Calculate scale factor (gain) required so that x = x when x = c. 
+    float scale = c / daniele_toe(c, b);
+
+  //Calculate scaled value before rolloff
+    float rgb2 = rgb1 * scale;
+
+  // Calculate rolloff factor
+    float roll = 1.0f / (1.0f + _expf(-((x - c) / w)));
+
+  //Calculate the exposure compensated toe with smooth rolloff
+    float rgb3 = rgb2 * (1.0f - roll) + x * roll;
+
+    return rgb3;
+
+}
+
+__DEVICE__ float apply_toe(float x, float b, float c, int exp_comp) {
+  
+    if (exp_comp == 1) {
+
+      if (x <= c){
+
+        return daniele_toe_comp(x, b, c);
+
+      } else {
+
+        return x;
+
+      }
+
+    } else {
+
+      return daniele_toe(x, b);
+
+    }
+
+}
+
+//Colour Transform
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{ 
+
+//Create float3 rgb
+  float3 rgb = make_float3(p_R, p_G, p_B);
+
+// c = value which effect will roll off at
+  const float c = 0.18f * _powf(2.0, a);
+
+  rgb.x = apply_toe(rgb.x, b, c, exp_comp);
+  rgb.y = apply_toe(rgb.y, b, c, exp_comp);
+  rgb.z = apply_toe(rgb.z, b, c, exp_comp);
+
+  //Clip negative values
+  rgb.x = _fmaxf(0.0, rgb.x);
+  rgb.x = _fmaxf(0.0, rgb.x);
+  rgb.x = _fmaxf(0.0, rgb.x);
+
+  return rgb;
+  
+}

@@ -96,8 +96,8 @@ __DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p
 
   //Clip negative values
   rgb.x = _fmaxf(0.0, rgb.x);
-  rgb.x = _fmaxf(0.0, rgb.x);
-  rgb.x = _fmaxf(0.0, rgb.x);
+  rgb.y = _fmaxf(0.0, rgb.y);
+  rgb.z = _fmaxf(0.0, rgb.z);
 
   return rgb;
   

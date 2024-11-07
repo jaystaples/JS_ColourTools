@@ -1,0 +1,71 @@
+/* 
+
+Shadow fill by Jay Staples. Intended for use on linearized images.
+As suggested by Michael Weinheim on http://www.liftgammagain.com/forum/index.php?threads/free-contrast-and-split-tone-dctl.19015/post-181861
+jaystaplesfilm.com
+jaystaplesfilm@gmail.com
+
+https://www.desmos.com/calculator/atbo9r6blz
+
+Params:
+a = controls intensity of effect
+b = adjusts effect midpoint, is stops above and below mid grey = 0.18
+s_mod = smoothing factor. Rebalances tonal range to create an inverse s-curve in order to prevent overlifting shadows.
+
+*/
+
+DEFINE_UI_PARAMS(a, Strength, DCTLUI_SLIDER_FLOAT, 0, 0, 1, 0.01)
+DEFINE_UI_PARAMS(b, Pivot, DCTLUI_SLIDER_FLOAT, 0, -3, 1, 0.01)
+DEFINE_UI_PARAMS(s_mod, Rebalance, DCTLUI_SLIDER_FLOAT, 0.8, 0.0, 1, 0.01)
+//Add Saturation compensation slider, use SumDelta colour space idea?
+
+
+__DEVICE__ float smoothing(float x, float m, float s) 
+{
+
+    return 1.0f / (1.0f + _expf(-(x-m)/s));
+
+}
+
+__DEVICE__ float gamma_style(float x, float a, float m, float s) 
+{
+
+    a = -0.5f * a + 1;
+    float smooth = smoothing(x, m, s);
+
+        if (x <= 0) {
+
+            return x;
+
+        } else {
+
+            float x1 = _powf(x/m, a) * m;
+            
+            float x2 = x1 * (1 - smooth) + x * smooth;
+
+        return x2;
+
+    }
+
+}
+
+
+//Colour Transform
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+
+  const float g = 0.18f;
+  float m = g * _powf(2, b);
+  float s = a * s_mod * 0.5f + 0.01f;
+
+  float3 rgb = make_float3(p_R, p_G, p_B);
+
+  rgb.x = gamma_style(rgb.x, a, m, s);
+  rgb.y = gamma_style(rgb.y, a, m, s);
+  rgb.z = gamma_style(rgb.z, a, m, s);
+
+  
+
+  return rgb;
+
+}

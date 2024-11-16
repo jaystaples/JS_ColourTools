@@ -1,0 +1,188 @@
+//Line 2
+DEFINE_UI_PARAMS(idt, IDT, DCTLUI_COMBO_BOX, 0, {linear, arri_logc3, arri_logc4, red_log3g10, sony_slog3}, {Linear, Arri LogC3, Arri LogC4, Red Log3G10, Sony SLog3})
+DEFINE_UI_PARAMS(direction, Direction, DCTLUI_COMBO_BOX, 0, {idt_jslog, jslog_idt}, {IDT to JS Log, JS Log to IDT})
+
+/*
+Based on https://colab.research.google.com/drive/1NwjaD0NzNMzQeNQqZECj33PdcYGkeBM4
+
+JS Log is inspired by Josh Pines Log created for colourlab ai INode and ONode tools. Each stop is given an equal share of code values. 
+Offset adjustments in this space is mathematically equivalent to a gain in a linear space, while also feeling quite elegant when balancing the neutral axis.
+As an artist, I prefer using offset in space space over Davinci's built in HDR global wheel.
+
+Unlike JP Log, this DCTL does not perform any gamut adjustments or mapping, it is purely a transfer function adjustment to have our standard colour tools behave in a different way.
+
+To use this tool, create three nodes on the track. In the first and third node, select your footage's IDT. In the first node select IDT to JS Log, in the third select JS log to IDT.
+
+Then, adjustments made in your second node will be done in JS Log space.
+
+This DCTL has not been thoroughly tested, use at your own risk.
+
+*/
+
+
+
+//Transfer Functions
+
+    __DEVICE__ float oetf_arri_logc3(float x, int direction) {
+    /* Arri Alexa LogC3 
+        Formerly known as Alexa V3LogC EI800
+        https://www.arri.com/resource/blob/31918/66f56e6abb6e5b6553929edf9aa7483e/2017-03-alexa-logc-curve-in-vfx-data.pdf
+    */
+
+    const float cut = 0.010591f;
+    const float a = 5.555556f;
+    const float b = 0.052272f;
+    const float c = 0.247190f;
+    const float d = 0.385537f;
+    const float e = 5.367655f;
+    const float f = 0.092809f;
+
+    if (direction == idt_jslog) {
+        return x < e*cut + f ? (x - f)/e : (_exp10f((x - d)/c) - b)/a;
+    } else {
+        return x < cut ? e*x + f : c*_log10f(a*x + b) + d;
+    }
+    }
+
+    __DEVICE__ float oetf_arri_logc4(float x, int direction) {
+    /* Arri Alexa LogC4
+        https://www.arri.com/resource/blob/278790/bea879ac0d041a925bed27a096ab3ec2/2022-05-arri-logc4-specification-data.pdf
+    */
+    
+    const float a = (_exp2f(18.0f) - 16.0f)/117.45f;
+    const float b = (1023.0f - 95.0f)/1023.0f;
+    const float c = 95.0f/1023.0f;
+    const float s = (7.0f*_logf(2.0f)*_exp2f(7.0f - 14.0f*c/b))/(a*b);
+    const float t = (_exp2f(14.0f*(-c/b) + 6.0f) - 64.0f)/a;
+
+    if (direction == idt_jslog) {
+        return x < t ? x*s + t : (_exp2f(14.0f*(x - c)/b + 6.0f) - 64.0f)/a;
+    } else {
+        return x < t ? (x - t)/s : (_log2f(a*x + 64.0f) - 6.0f)/14.0f*b + c;
+    }
+    }
+
+    __DEVICE__ float oetf_red_log3g10(float x, int direction) {
+    /* Red Log3G10
+        https://docs.red.com/955-0187/PDF/915-0187%20Rev-C%20%20%20RED%20OPS,%20White%20Paper%20on%20REDWideGamutRGB%20and%20Log3G10.pdf
+    */
+    const float a = 0.224282f;
+    const float b = 155.975327f;
+    const float c = 0.01f;
+    const float g = 15.1927f;
+
+    if (direction == idt_jslog) {
+        return x < 0.0f ? (x/g) - c : (_exp10f(x/a) - 1.0f)/b - c;
+    } else {
+        return x < -c ? (x + c)*g : a*_log10f((x + c)*b + 1.0f);
+    }
+    }
+
+    __DEVICE__ float oetf_sony_slog3(float x, int direction) {
+    /* Sony S-Log3
+        https://pro.sony/s3/cms-static-content/uploadfile/06/1237494271406.pdf
+    */
+    const float a = 0.01125f;
+    const float b = 420.0f;
+    const float c = 261.5f;
+    const float d = 171.2102946929f;
+    const float e = 95.0f;
+    const float f = 0.18f;
+    const float o = 0.01f;
+    
+    if (direction == idt_jslog) {
+        return x < d/1023.0f ? (x*1023.0f - e)*a/(d-e) : (_exp10f(((x*1023.0f - b)/c))*(f + o) - o);
+    } else {
+        return x < a ? (x*(d - e)/a + e)/1023.0f : (b + _log10f((x + o)/(f + o))*c)/1023.0f;
+    }
+    }
+
+    __DEVICE__ float oetf_js_log(float x, int direction) {
+
+    //Crackpot math is here https://www.desmos.com/calculator/c7w8wj3w4j
+
+    //User Constants. Defines mid grey, then define the number of stops above and below to encode in the 0-1 range.
+    //Depth is bit depth for 32bit float precision. 10 bit at 1024 was also an option but 32bit felt more precise and not computationally intensive.
+    const float g = 0.18f;
+    const float above = 15.0f;
+    const float below = 9.0f;
+    const float depth = _powf(2.0f, 32.0f) - 1.0f;
+
+    //Derived Constants
+    const float range = above + below;
+    const float wp = g * _powf(2.0f, above);
+    const float bp = -g * _powf(2.0f, -below);
+    const float code_stop = _floorf(depth / range);
+    const float code_above = code_stop * above;
+    const float code_below = code_stop * below;
+    const float code_used = code_stop * range;
+    const float g_log = code_below / depth;
+    const float scale = (1 - g_log) / _logf((wp - bp) / g - bp);
+    const float offset = 1.0f - scale * _logf(wp - bp);
+    const float lin_slope = -(scale / bp);
+    const float lin_offset = scale * _logf(-bp) + offset;
+
+    if (direction == idt_jslog) {
+
+        return x >= 0.0f ? 
+            scale * _logf(x - bp) + offset :
+            lin_slope * x + lin_offset;
+
+    } else {
+
+        return x >= 0.0f ? 
+            _expf((x - offset) / scale) + bp :
+            (x - lin_offset) / lin_slope;
+    }
+
+}
+
+__DEVICE__ float3 remove_transfer_function(float3 rgb, int direction, int idt) {
+
+    if (idt == arri_logc3) { 
+        rgb.x = oetf_arri_logc3(rgb.x, direction); 
+        rgb.y = oetf_arri_logc3(rgb.y, direction); 
+        rgb.z = oetf_arri_logc3(rgb.z, direction); 
+    } else if (idt == arri_logc4) { 
+        rgb.x = oetf_arri_logc4(rgb.x, direction); 
+        rgb.y = oetf_arri_logc4(rgb.y, direction); 
+        rgb.z = oetf_arri_logc4(rgb.z, direction);
+    } else if (idt == red_log3g10) { 
+        rgb.x = oetf_red_log3g10(rgb.x, direction); 
+        rgb.y = oetf_red_log3g10(rgb.y, direction); 
+        rgb.z = oetf_red_log3g10(rgb.z, direction); 
+    } else if (idt == sony_slog3) { 
+        rgb.x = oetf_sony_slog3(rgb.x, direction); 
+        rgb.y = oetf_sony_slog3(rgb.y, direction); 
+        rgb.z = oetf_sony_slog3(rgb.z, direction); 
+    } 
+
+
+    return rgb;
+
+    }
+
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, float p_R, float p_G, float p_B)
+{
+
+    float3 rgb = make_float3(p_R, p_G, p_B);
+    
+    // First convert from input format to linear
+    if (direction == idt_jslog) {
+    rgb = remove_transfer_function(rgb, idt_jslog, idt);
+    }
+    
+    // Then apply JS Log encoding/decoding
+    rgb.x = oetf_js_log(rgb.x, direction);
+    rgb.y = oetf_js_log(rgb.y, direction);
+    rgb.z = oetf_js_log(rgb.z, direction);
+    
+    // Finally convert back to original format if needed
+    if (direction == jslog_idt) {
+    rgb = remove_transfer_function(rgb, jslog_idt, idt);
+    }
+
+    return rgb;
+
+}
